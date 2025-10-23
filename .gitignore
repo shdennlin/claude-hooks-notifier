@@ -1,0 +1,10 @@
+# Claude Code local settings (should not be committed)
+.claude/settings.json
+.claude/settings.local.json
+.claude/session_start.tmp
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
