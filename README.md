@@ -9,7 +9,8 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 - **⏳ Waiting for Input**: Notifies when Claude has been idle for 60+ seconds
 - **✅ Task Completed**: Sends completion notification with session duration
 - **🤖 Subagent Completed**: Notifies when subagent tasks finish
-- **🏁 Session End**: Final notification with total duration and memory usage
+- **🏁 Session End**: Final notification with total duration
+- **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
 
 ## Setup
 
@@ -173,6 +174,7 @@ This notification system includes several reliability and security enhancements:
 - **Duration Validation**: Sanity checks prevent invalid duration calculations (>24h)
 - **Graceful Failures**: Never blocks Claude Code even if notifications fail
 - **Unified Handler**: All hook types use the same well-tested script
+- **macOS Desktop Notifications**: Native system notifications with platform detection and graceful fallback
 
 ## Customization
 
@@ -289,14 +291,18 @@ export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="your_chat_id"
 ```
 
-### Add Desktop Notifications (macOS)
+### Desktop Notifications
 
-Combine with osascript in the handler script:
+macOS desktop notifications are **built-in and enabled by default**. They work alongside Telegram notifications and require no additional configuration.
 
-```bash
-# In claude-notification-handler.sh, add:
-osascript -e "display notification \"$DETAILS\" with title \"$TITLE\""
-```
+**Features:**
+- Automatic platform detection (macOS only)
+- Event-specific messages with appropriate details
+- Graceful fallback on non-macOS systems
+- Never blocks hook execution on failure
+
+**To disable desktop notifications:**
+Comment out the `osascript` lines in each case statement in `scripts/claude-notification-handler.sh`.
 
 ### Log Notifications to File
 

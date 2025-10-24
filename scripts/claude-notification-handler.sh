@@ -80,6 +80,11 @@ case "$HOOK_EVENT" in
         EMOJI="🚀"
         TITLE="Claude Code Session Started"
         TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"Project: $PROJECT_DIR\" with title \"🚀 Session Started\"" 2>/dev/null || true
+        fi
         ;;
 
     "Notification")
@@ -107,6 +112,11 @@ case "$HOOK_EVENT" in
         fi
 
         TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A📝 $(url_encode "$DETAILS")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"$DETAILS\" with title \"$EMOJI $TITLE\"" 2>/dev/null || true
+        fi
         ;;
 
     "Stop")
@@ -114,6 +124,11 @@ case "$HOOK_EVENT" in
         EMOJI="✅"
         TITLE="Task Completed"
         TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Duration: $DURATION_TEXT%0A⏰ Finished: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"Duration: $DURATION_TEXT\" with title \"✅ Task Completed\"" 2>/dev/null || true
+        fi
         ;;
 
     "SubagentStop")
@@ -121,6 +136,11 @@ case "$HOOK_EVENT" in
         EMOJI="🤖"
         TITLE="Subagent Task Completed"
         TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Duration: $DURATION_TEXT%0A⏰ Finished: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"Duration: $DURATION_TEXT\" with title \"🤖 Subagent Completed\"" 2>/dev/null || true
+        fi
         ;;
 
     "SessionEnd")
@@ -128,6 +148,12 @@ case "$HOOK_EVENT" in
         EMOJI="🏁"
         TITLE="Session Ended"
         TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Total Duration: $DURATION_TEXT%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"Total Duration: $DURATION_TEXT\" with title \"🏁 Session Ended\"" 2>/dev/null || true
+        fi
+
         # Clean up session start file
         rm -f ~/.claude/session_start.tmp
         ;;
@@ -139,6 +165,11 @@ case "$HOOK_EVENT" in
         MSG_PREVIEW="${MESSAGE:0:100}"
         [[ ${#MESSAGE} -gt 100 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
         TELEGRAM_MESSAGE="$EMOJI <b>Claude Code Event</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A🔖 Event: $(url_encode "$HOOK_EVENT")%0A📝 Message: $(url_encode "$MSG_PREVIEW")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+
+        # macOS desktop notification (optional for debugging)
+        if command -v osascript >/dev/null 2>&1; then
+            osascript -e "display notification \"Event: $HOOK_EVENT\" with title \"ℹ️ Unknown Event\"" 2>/dev/null || true
+        fi
         ;;
 esac
 
