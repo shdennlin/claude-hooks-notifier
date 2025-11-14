@@ -78,31 +78,31 @@ case "$HOOK_EVENT" in
         # Session started - create timestamp file
         echo "$CURRENT_TIME" > ~/.claude/session_start.tmp
         EMOJI="🚀"
-        TITLE="Claude Code Session Started"
-        TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+        ACTION="Session Started"
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"Project: $PROJECT_DIR\" with title \"🚀 Session Started\"" 2>/dev/null || true
+            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Glass\"" 2>/dev/null || true
         fi
         ;;
 
     "Notification")
         # Parse notification message to determine specific type
         if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
-            # Tool approval request
+            # Tool approval request - HIGHEST PRIORITY
             EMOJI="🔐"
-            TITLE="Tool Approval Required"
+            ACTION="Tool Approval Needed"
             DETAILS="Claude is requesting permission to use a tool"
         elif echo "$MESSAGE" | grep -qiE "(waiting|idle|input)"; then
             # Waiting for input
             EMOJI="⏳"
-            TITLE="Waiting for Input"
+            ACTION="User Input Needed"
             DETAILS="Claude has been idle (60+ seconds)"
         else
             # Generic notification
             EMOJI="🔔"
-            TITLE="Notification"
+            ACTION="Notification"
             # Truncate message if too long (at word boundary)
             if [[ ${#MESSAGE} -gt 100 ]]; then
                 DETAILS="${MESSAGE:0:100}..."
@@ -111,47 +111,51 @@ case "$HOOK_EVENT" in
             fi
         fi
 
-        TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A📝 $(url_encode "$DETAILS")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$DETAILS")"
 
-        # macOS desktop notification
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"$DETAILS\" with title \"$EMOJI $TITLE\"" 2>/dev/null || true
+            if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+                osascript -e "display notification \"$EMOJI $ACTION - $DETAILS\" with title \"$PROJECT_DIR\" sound name \"Basso\"" 2>/dev/null || true
+            else
+                osascript -e "display notification \"$EMOJI $ACTION - $DETAILS\" with title \"$PROJECT_DIR\"" 2>/dev/null || true
+            fi
         fi
         ;;
 
     "Stop")
         # Main task completion
         EMOJI="✅"
-        TITLE="Task Completed"
-        TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Duration: $DURATION_TEXT%0A⏰ Finished: $TIMESTAMP%0A📅 Date: $DATE"
+        ACTION="Task Complete"
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"Duration: $DURATION_TEXT\" with title \"✅ Task Completed\"" 2>/dev/null || true
+            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Hero\"" 2>/dev/null || true
         fi
         ;;
 
     "SubagentStop")
         # Subagent completion
         EMOJI="🤖"
-        TITLE="Subagent Task Completed"
-        TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Duration: $DURATION_TEXT%0A⏰ Finished: $TIMESTAMP%0A📅 Date: $DATE"
+        ACTION="Subagent Task Complete"
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"Duration: $DURATION_TEXT\" with title \"🤖 Subagent Completed\"" 2>/dev/null || true
+            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Purr\"" 2>/dev/null || true
         fi
         ;;
 
     "SessionEnd")
         # Session ended
         EMOJI="🏁"
-        TITLE="Session Ended"
-        TELEGRAM_MESSAGE="$EMOJI <b>$TITLE</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A⏱️ Total Duration: $DURATION_TEXT%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+        ACTION="Session Ended"
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"Total Duration: $DURATION_TEXT\" with title \"🏁 Session Ended\"" 2>/dev/null || true
+            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Submarine\"" 2>/dev/null || true
         fi
 
         # Clean up session start file
@@ -161,14 +165,14 @@ case "$HOOK_EVENT" in
     *)
         # Unknown event type - log it for debugging
         EMOJI="ℹ️"
-        TITLE="Unknown Event"
-        MSG_PREVIEW="${MESSAGE:0:100}"
-        [[ ${#MESSAGE} -gt 100 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
-        TELEGRAM_MESSAGE="$EMOJI <b>Claude Code Event</b>%0A📁 Project: $(url_encode "$PROJECT_DIR")%0A🔖 Event: $(url_encode "$HOOK_EVENT")%0A📝 Message: $(url_encode "$MSG_PREVIEW")%0A⏰ Time: $TIMESTAMP%0A📅 Date: $DATE"
+        ACTION="Unknown Event: $HOOK_EVENT"
+        MSG_PREVIEW="${MESSAGE:0:80}"
+        [[ ${#MESSAGE} -gt 80 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
+        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$MSG_PREVIEW")"
 
-        # macOS desktop notification (optional for debugging)
+        # macOS desktop notification - project name as title
         if command -v osascript >/dev/null 2>&1; then
-            osascript -e "display notification \"Event: $HOOK_EVENT\" with title \"ℹ️ Unknown Event\"" 2>/dev/null || true
+            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\"" 2>/dev/null || true
         fi
         ;;
 esac
@@ -190,7 +194,7 @@ send_telegram_notification() {
         # Check if curl succeeded
         CURL_EXIT=$?
         if [[ $CURL_EXIT -eq 0 && "$HTTP_CODE" =~ ^2 ]]; then
-            echo "✅ Telegram notification sent: $TITLE ($HOOK_EVENT)"
+            echo "✅ Telegram notification sent: $ACTION ($HOOK_EVENT)"
             return 0
         fi
 
