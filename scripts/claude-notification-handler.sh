@@ -94,11 +94,6 @@ case "$HOOK_EVENT" in
             EMOJI="🔐"
             ACTION="Tool Approval Needed"
             DETAILS="Claude is requesting permission to use a tool"
-        elif echo "$MESSAGE" | grep -qiE "(waiting|idle|input)"; then
-            # Waiting for input
-            EMOJI="⏳"
-            ACTION="User Input Needed"
-            DETAILS="Claude has been idle (60+ seconds)"
         else
             # Generic notification
             EMOJI="🔔"

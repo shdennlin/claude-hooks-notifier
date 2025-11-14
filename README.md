@@ -6,10 +6,9 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 
 - **🚀 Session Start**: Notifies when Claude Code session begins
 - **🔐 Tool Approval**: Alerts when Claude requests permission to use tools
-- **⏳ Waiting for Input**: Notifies when Claude has been idle for 60+ seconds
-- **✅ Task Completed**: Sends completion notification with session duration
+- **✅ Task Completed**: Sends completion notification
 - **🤖 Subagent Completed**: Notifies when subagent tasks finish
-- **🏁 Session End**: Final notification with total duration
+- **🏁 Session End**: Final notification when session closes
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
 
 ## Setup
@@ -157,12 +156,11 @@ You should receive 7 different Telegram notifications, one for each event type.
 
 | Event | Emoji | Trigger | Information Included |
 |-------|-------|---------|---------------------|
-| Session Start | 🚀 | Claude Code starts | Project, timestamp |
-| Tool Approval | 🔐 | Permission request | Project, tool name, timestamp |
-| Waiting | ⏳ | Idle 60+ seconds | Project, idle reason, timestamp |
-| Task Complete | ✅ | Main task done | Project, duration, timestamp |
-| Subagent Complete | 🤖 | Subagent task done | Project, duration, timestamp |
-| Session End | 🏁 | Session closes | Project, total duration, timestamp |
+| Session Start | 🚀 | Claude Code starts | Project name, action |
+| Tool Approval | 🔐 | Permission request | Project name, approval details |
+| Task Complete | ✅ | Main task done | Project name, completion status |
+| Subagent Complete | 🤖 | Subagent task done | Project name, completion status |
+| Session End | 🏁 | Session closes | Project name, end status |
 
 ## Improvements
 

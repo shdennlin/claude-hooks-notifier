@@ -42,19 +42,8 @@ echo '{
 }' | $HANDLER
 echo ""
 
-# Test 2: Waiting for Input Notification
-echo "📝 Test 2: Waiting for Input"
-echo '{
-  "session_id": "test-123",
-  "transcript_path": "/test/path",
-  "cwd": "/Users/test/project",
-  "hook_event_name": "Notification",
-  "message": "Claude is waiting for your input"
-}' | $HANDLER
-echo ""
-
-# Test 3: Generic Notification
-echo "📝 Test 3: Generic Notification"
+# Test 2: Generic Notification
+echo "📝 Test 2: Generic Notification"
 echo '{
   "session_id": "test-123",
   "transcript_path": "/test/path",
@@ -64,8 +53,8 @@ echo '{
 }' | $HANDLER
 echo ""
 
-# Test 4: Task Completion (Stop event)
-echo "📝 Test 4: Task Completion"
+# Test 3: Task Completion (Stop event)
+echo "📝 Test 3: Task Completion"
 echo '{
   "session_id": "test-123",
   "transcript_path": "/test/path",
@@ -74,8 +63,8 @@ echo '{
 }' | $HANDLER
 echo ""
 
-# Test 5: Subagent Completion
-echo "📝 Test 5: Subagent Completion"
+# Test 4: Subagent Completion
+echo "📝 Test 4: Subagent Completion"
 echo '{
   "session_id": "test-123",
   "transcript_path": "/test/path",
@@ -84,8 +73,8 @@ echo '{
 }' | $HANDLER
 echo ""
 
-# Test 6: Session End
-echo "📝 Test 6: Session End"
+# Test 5: Session End
+echo "📝 Test 5: Session End"
 echo '{
   "session_id": "test-123",
   "transcript_path": "/test/path",
@@ -98,13 +87,12 @@ echo "=========================================="
 echo "✅ All tests completed!"
 echo ""
 echo "If TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set,"
-echo "you should have received 7 different Telegram notifications:"
+echo "you should have received 6 different Telegram notifications:"
 echo "  0. Session Start"
 echo "  1. Tool Approval Request"
-echo "  2. Waiting for Input"
-echo "  3. Generic Notification"
-echo "  4. Task Completion"
-echo "  5. Subagent Completion"
-echo "  6. Session End"
+echo "  2. Generic Notification"
+echo "  3. Task Completion"
+echo "  4. Subagent Completion"
+echo "  5. Session End"
 echo ""
 echo "If not set, you should see warning messages instead."
