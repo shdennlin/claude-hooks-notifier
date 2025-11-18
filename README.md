@@ -291,16 +291,41 @@ export TELEGRAM_CHAT_ID="your_chat_id"
 
 ### Desktop Notifications
 
-macOS desktop notifications are **built-in and enabled by default**. They work alongside Telegram notifications and require no additional configuration.
+macOS desktop notifications are **built-in and enabled by default**. They work alongside Telegram notifications and use `terminal-notifier` for enhanced functionality.
 
 **Features:**
+- **Click-to-activate:** Click any notification to bring Terminal to the front
 - Automatic platform detection (macOS only)
 - Event-specific messages with appropriate details
-- Graceful fallback on non-macOS systems
+- Sound alerts for important events (Tool Approval, Task Complete, etc.)
+- Graceful fallback to basic `osascript` if `terminal-notifier` not installed
 - Never blocks hook execution on failure
 
+#### Installing terminal-notifier (Recommended)
+
+For clickable notifications that activate your terminal when clicked:
+
+```bash
+brew install terminal-notifier
+```
+
+**Benefits:**
+- Click notifications to jump back to your terminal
+- **Automatic terminal detection** - supports iTerm2, Alacritty, Kitty, and Terminal.app
+- No additional configuration needed
+- Works with all notification types
+- Falls back to basic notifications if not installed
+
+**Supported Terminals:**
+- iTerm2 (auto-detected via `$TERM_PROGRAM` or process name)
+- Terminal.app (default)
+- Alacritty
+- Kitty
+
+**Note:** Due to macOS terminal limitations, notifications bring the terminal app to the front but cannot navigate to a specific tab. You'll need to manually locate the correct tab after clicking.
+
 **To disable desktop notifications:**
-Comment out the `osascript` lines in each case statement in `scripts/claude-notification-handler.sh`.
+Comment out the notification lines in each case statement in `scripts/claude-notification-handler.sh`.
 
 ### Log Notifications to File
 

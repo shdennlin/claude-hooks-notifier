@@ -55,6 +55,19 @@ TIMESTAMP="$(date '+%H:%M:%S')"
 DATE="$(date '+%Y-%m-%d')"
 CURRENT_TIME="$(date +%s)"
 
+# Detect which terminal app is running for click-to-activate
+TERMINAL_BUNDLE_ID="com.apple.Terminal"  # Default to Terminal.app
+if command -v osascript >/dev/null 2>&1; then
+    # Check if iTerm2 is the parent process or currently running
+    if [[ "$TERM_PROGRAM" == "iTerm.app" ]] || pgrep -q "iTerm2"; then
+        TERMINAL_BUNDLE_ID="com.googlecode.iterm2"
+    elif pgrep -q "Alacritty"; then
+        TERMINAL_BUNDLE_ID="org.alacritty"
+    elif pgrep -q "kitty"; then
+        TERMINAL_BUNDLE_ID="net.kovidgoyal.kitty"
+    fi
+fi
+
 # Calculate duration if session start exists
 if [[ -f ~/.claude/session_start.tmp ]]; then
     START_TIME="$(cat ~/.claude/session_start.tmp)"
@@ -81,8 +94,11 @@ case "$HOOK_EVENT" in
         ACTION="Session Started"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Glass" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Glass\"" 2>/dev/null || true
         fi
         ;;
@@ -108,8 +124,15 @@ case "$HOOK_EVENT" in
 
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$DETAILS")"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+                terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION - $DETAILS" -sound "Basso" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+            else
+                terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION - $DETAILS" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+            fi
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
                 osascript -e "display notification \"$EMOJI $ACTION - $DETAILS\" with title \"$PROJECT_DIR\" sound name \"Basso\"" 2>/dev/null || true
             else
@@ -124,8 +147,11 @@ case "$HOOK_EVENT" in
         ACTION="Task Complete"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Hero" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Hero\"" 2>/dev/null || true
         fi
         ;;
@@ -136,8 +162,11 @@ case "$HOOK_EVENT" in
         ACTION="Subagent Task Complete"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Purr" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Purr\"" 2>/dev/null || true
         fi
         ;;
@@ -148,8 +177,11 @@ case "$HOOK_EVENT" in
         ACTION="Session Ended"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Submarine" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Submarine\"" 2>/dev/null || true
         fi
 
@@ -165,8 +197,11 @@ case "$HOOK_EVENT" in
         [[ ${#MESSAGE} -gt 80 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$MSG_PREVIEW")"
 
-        # macOS desktop notification - project name as title
-        if command -v osascript >/dev/null 2>&1; then
+        # macOS desktop notification - project name as title, click to activate Terminal
+        if command -v terminal-notifier >/dev/null 2>&1; then
+            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
+        elif command -v osascript >/dev/null 2>&1; then
+            # Fallback to osascript if terminal-notifier not installed
             osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\"" 2>/dev/null || true
         fi
         ;;
