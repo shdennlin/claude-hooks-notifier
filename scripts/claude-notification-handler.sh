@@ -247,7 +247,7 @@ send_telegram_notification() {
     done
 }
 
-send_telegram_notification
+send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
 
 # Exit gracefully even if notification fails (don't block Claude Code)
 exit 0
