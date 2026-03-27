@@ -311,21 +311,44 @@ brew install terminal-notifier
 
 **Benefits:**
 - Click notifications to jump back to your terminal
-- **Automatic terminal detection** - supports iTerm2, Alacritty, Kitty, and Terminal.app
+- **Automatic terminal detection** - supports all major terminals via `$TERM_PROGRAM` with frontmost app fallback
 - No additional configuration needed
 - Works with all notification types
 - Falls back to basic notifications if not installed
 
 **Supported Terminals:**
-- iTerm2 (auto-detected via `$TERM_PROGRAM` or process name)
-- Terminal.app (default)
+- Terminal.app (default fallback)
+- iTerm2
+- Ghostty
 - Alacritty
-- Kitty
+- kitty
+- WezTerm
+- Warp
+- Hyper
+- Tabby
+- Rio
+- VS Code integrated terminal
+- Any other terminal (auto-detected via frontmost app fallback)
 
 **Note:** Due to macOS terminal limitations, notifications bring the terminal app to the front but cannot navigate to a specific tab. You'll need to manually locate the correct tab after clicking.
 
-**To disable desktop notifications:**
-Comment out the notification lines in each case statement in `scripts/claude-notification-handler.sh`.
+**Disabling Notifications:**
+
+Use environment variables to toggle each notification channel:
+
+```bash
+# Disable desktop notifications only
+export CLAUDE_NOTIFY_DESKTOP="false"
+
+# Disable Telegram notifications only
+export CLAUDE_NOTIFY_TELEGRAM="false"
+
+# Disable all notifications
+export CLAUDE_NOTIFY_DESKTOP="false"
+export CLAUDE_NOTIFY_TELEGRAM="false"
+```
+
+Both default to `true` (enabled). Add to your shell profile to persist.
 
 ### Log Notifications to File
 

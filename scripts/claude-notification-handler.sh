@@ -43,9 +43,19 @@ INPUT=$(cat)
 HOOK_EVENT=$(parse_json "$INPUT" "hook_event_name")
 MESSAGE=$(parse_json "$INPUT" "message")
 
+# Notification toggles (set to "false" to disable)
+ENABLE_TELEGRAM="${CLAUDE_NOTIFY_TELEGRAM:-true}"
+ENABLE_DESKTOP="${CLAUDE_NOTIFY_DESKTOP:-true}"
+
 # Check for Telegram credentials
-if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+if [[ "$ENABLE_TELEGRAM" == "true" && ( -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ) ]]; then
     echo "⚠️ Telegram notification skipped: Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+    ENABLE_TELEGRAM="false"
+fi
+
+# Exit early if both are disabled
+if [[ "$ENABLE_TELEGRAM" != "true" && "$ENABLE_DESKTOP" != "true" ]]; then
+    echo "ℹ️ All notifications disabled"
     exit 0
 fi
 
@@ -56,17 +66,59 @@ DATE="$(date '+%Y-%m-%d')"
 CURRENT_TIME="$(date +%s)"
 
 # Detect which terminal app is running for click-to-activate
-TERMINAL_BUNDLE_ID="com.apple.Terminal"  # Default to Terminal.app
-if command -v osascript >/dev/null 2>&1; then
-    # Check if iTerm2 is the parent process or currently running
-    if [[ "$TERM_PROGRAM" == "iTerm.app" ]] || pgrep -q "iTerm2"; then
-        TERMINAL_BUNDLE_ID="com.googlecode.iterm2"
-    elif pgrep -q "Alacritty"; then
-        TERMINAL_BUNDLE_ID="org.alacritty"
-    elif pgrep -q "kitty"; then
-        TERMINAL_BUNDLE_ID="net.kovidgoyal.kitty"
+detect_terminal_bundle_id() {
+    local term_program="${TERM_PROGRAM:-}"
+
+    # Map TERM_PROGRAM to known bundle IDs
+    case "$term_program" in
+        "iTerm.app")       echo "com.googlecode.iterm2" ;;
+        "ghostty")         echo "com.mitchellh.ghostty" ;;
+        "Alacritty")       echo "org.alacritty" ;;
+        "kitty")           echo "net.kovidgoyal.kitty" ;;
+        "WezTerm")         echo "org.wezfurlong.wezterm" ;;
+        "WarpTerminal")    echo "dev.warp.Warp-Stable" ;;
+        "Hyper")           echo "co.zeit.hyper" ;;
+        "tabby")           echo "org.tabby" ;;
+        "rio")             echo "com.raphaelamorim.rio" ;;
+        "vscode")          echo "com.microsoft.VSCode" ;;
+        "Apple_Terminal")  echo "com.apple.Terminal" ;;
+        *)
+            # Fallback: try to get bundle ID of the frontmost app via osascript
+            if command -v osascript >/dev/null 2>&1; then
+                local frontmost
+                frontmost=$(osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true' 2>/dev/null || echo "")
+                if [[ -n "$frontmost" ]]; then
+                    echo "$frontmost"
+                    return
+                fi
+            fi
+            # Ultimate fallback
+            echo "com.apple.Terminal"
+            ;;
+    esac
+}
+
+TERMINAL_BUNDLE_ID="$(detect_terminal_bundle_id)"
+
+# Helper: send macOS desktop notification (respects ENABLE_DESKTOP toggle)
+# Usage: send_desktop_notification "title" "message" ["sound"]
+send_desktop_notification() {
+    [[ "$ENABLE_DESKTOP" != "true" ]] && return 0
+
+    local title="$1"
+    local message="$2"
+    local sound="${3:-}"
+
+    if command -v terminal-notifier >/dev/null 2>&1; then
+        local args=(-title "$title" -message "$message" -activate "$TERMINAL_BUNDLE_ID")
+        [[ -n "$sound" ]] && args+=(-sound "$sound")
+        terminal-notifier "${args[@]}" 2>/dev/null || true
+    elif command -v osascript >/dev/null 2>&1; then
+        local script="display notification \"$message\" with title \"$title\""
+        [[ -n "$sound" ]] && script="$script sound name \"$sound\""
+        osascript -e "$script" 2>/dev/null || true
     fi
-fi
+}
 
 # Calculate duration if session start exists
 if [[ -f ~/.claude/session_start.tmp ]]; then
@@ -93,14 +145,7 @@ case "$HOOK_EVENT" in
         EMOJI="🚀"
         ACTION="Session Started"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Glass" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Glass\"" 2>/dev/null || true
-        fi
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Glass"
         ;;
 
     "Notification")
@@ -123,21 +168,10 @@ case "$HOOK_EVENT" in
         fi
 
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$DETAILS")"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
-                terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION - $DETAILS" -sound "Basso" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-            else
-                terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION - $DETAILS" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-            fi
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
-                osascript -e "display notification \"$EMOJI $ACTION - $DETAILS\" with title \"$PROJECT_DIR\" sound name \"Basso\"" 2>/dev/null || true
-            else
-                osascript -e "display notification \"$EMOJI $ACTION - $DETAILS\" with title \"$PROJECT_DIR\"" 2>/dev/null || true
-            fi
+        if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+            send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS" "Basso"
+        else
+            send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS"
         fi
         ;;
 
@@ -146,14 +180,7 @@ case "$HOOK_EVENT" in
         EMOJI="✅"
         ACTION="Task Complete"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Hero" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Hero\"" 2>/dev/null || true
-        fi
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Hero"
         ;;
 
     "SubagentStop")
@@ -161,14 +188,7 @@ case "$HOOK_EVENT" in
         EMOJI="🤖"
         ACTION="Subagent Task Complete"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Purr" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Purr\"" 2>/dev/null || true
-        fi
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Purr"
         ;;
 
     "SessionEnd")
@@ -176,14 +196,7 @@ case "$HOOK_EVENT" in
         EMOJI="🏁"
         ACTION="Session Ended"
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -sound "Submarine" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\" sound name \"Submarine\"" 2>/dev/null || true
-        fi
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Submarine"
 
         # Clean up session start file
         rm -f ~/.claude/session_start.tmp
@@ -196,14 +209,7 @@ case "$HOOK_EVENT" in
         MSG_PREVIEW="${MESSAGE:0:80}"
         [[ ${#MESSAGE} -gt 80 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
         TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$MSG_PREVIEW")"
-
-        # macOS desktop notification - project name as title, click to activate Terminal
-        if command -v terminal-notifier >/dev/null 2>&1; then
-            terminal-notifier -title "$PROJECT_DIR" -message "$EMOJI $ACTION" -activate "$TERMINAL_BUNDLE_ID" 2>/dev/null || true
-        elif command -v osascript >/dev/null 2>&1; then
-            # Fallback to osascript if terminal-notifier not installed
-            osascript -e "display notification \"$EMOJI $ACTION\" with title \"$PROJECT_DIR\"" 2>/dev/null || true
-        fi
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION"
         ;;
 esac
 
@@ -247,7 +253,9 @@ send_telegram_notification() {
     done
 }
 
-send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
+if [[ "$ENABLE_TELEGRAM" == "true" ]]; then
+    send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
+fi
 
 # Exit gracefully even if notification fails (don't block Claude Code)
 exit 0
