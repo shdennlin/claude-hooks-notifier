@@ -6,11 +6,12 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 
 - **🚀 Session Start**: Notifies when Claude Code session begins
 - **🔐 Tool Approval**: Alerts when Claude requests permission to use tools
-- **✅ Task Completed**: Sends completion notification
-- **🤖 Subagent Completed**: Notifies when subagent tasks finish
-- **🏁 Session End**: Final notification when session closes
+- **🙋 Agent Needs Input**: Alerts when a background agent is waiting on you
+- **✅ Task Completed**: Completion notification with the first line of Claude's reply and session duration
+- **🤖 Subagent Completed**: Notifies when subagent tasks finish, including the agent type (e.g. `Explore`)
+- **🏁 Session End**: Final notification when session closes, with total duration
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
-- **🏷️ Project + Session Name**: Every notification shows the project folder and the session name, so parallel sessions are easy to tell apart
+- **🏷️ Project + Session Name**: Every notification shows the project folder and the session name, so parallel sessions are easy to tell apart. New sessions on a feature branch are auto-named after the branch
 
 ## Setup
 
@@ -69,10 +70,12 @@ Add the hooks configuration (see `hooks.json.example` for reference):
     ],
     "Notification": [
       {
+        "matcher": "permission_prompt|agent_needs_input",
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/claude-notification-handler.sh"
+            "command": "./scripts/claude-notification-handler.sh",
+            "async": true
           }
         ]
       }
@@ -82,7 +85,8 @@ Add the hooks configuration (see `hooks.json.example` for reference):
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/claude-notification-handler.sh"
+            "command": "./scripts/claude-notification-handler.sh",
+            "async": true
           }
         ]
       }
@@ -92,7 +96,8 @@ Add the hooks configuration (see `hooks.json.example` for reference):
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/claude-notification-handler.sh"
+            "command": "./scripts/claude-notification-handler.sh",
+            "async": true
           }
         ]
       }
@@ -110,6 +115,13 @@ Add the hooks configuration (see `hooks.json.example` for reference):
   }
 }
 ```
+
+Why the config looks like this:
+
+- **`async: true`** on Notification/Stop/SubagentStop runs the handler in the background, so a slow or failing Telegram request (up to 3 retries × 10s) never blocks Claude.
+- **SessionStart stays synchronous** because its JSON output names the session (`sessionTitle`); async hooks have their output discarded. The handler detaches its own Telegram call on SessionStart, so startup is not delayed.
+- **SessionEnd stays synchronous** so the final notification is sent before Claude Code exits.
+- **Notification matcher `permission_prompt|agent_needs_input`** only forwards notifications that need you. Remove the matcher to receive every notification type (idle prompts, auth, MCP dialogs, …) as a generic 🔔.
 
 **Note**: If using global configuration (`~/.claude/settings.json`), use absolute paths:
 ```json
@@ -159,9 +171,10 @@ You should receive 7 different Telegram notifications, one for each event type.
 |-------|-------|---------|---------------------|
 | Session Start | 🚀 | Claude Code starts | Project name, action |
 | Tool Approval | 🔐 | Permission request | Project name, approval details |
-| Task Complete | ✅ | Main task done | Project name, completion status |
-| Subagent Complete | 🤖 | Subagent task done | Project name, completion status |
-| Session End | 🏁 | Session closes | Project name, end status |
+| Agent Needs Input | 🙋 | Background agent waiting | Project name, agent message |
+| Task Complete | ✅ | Main task done | Project name, reply preview, duration |
+| Subagent Complete | 🤖 | Subagent task done | Project name, agent type, reply preview |
+| Session End | 🏁 | Session closes | Project name, total duration |
 
 ### Message Format
 
@@ -170,15 +183,21 @@ Telegram:
 ```
 <b>my-project</b> · <i>fix-auth-flow</i>
 ✅ Task Complete
+Fixed the token refresh race in auth middleware
+⏱ 12m 40s
 ```
 
 Desktop: the project is the title, the session name is the subtitle.
+
+The preview line is the first non-empty line of Claude's final message (`last_assistant_message`), with markdown markers stripped and capped at 120 characters. The duration line appears only when the handler saw this session's SessionStart.
 
 The session name is resolved in this order (omitted if none is found):
 
 1. `session_title` from the hook input (SessionStart only — set via `--name`, `/rename`, or a hook's `sessionTitle`)
 2. The latest `/rename` title in the session transcript (`custom-title` entry)
 3. Claude's auto-generated title in the transcript (`ai-title` entry)
+
+**Auto-naming**: on `SessionStart` with `source: startup`, when no title is set yet, the handler names the session after the current git branch (same effect as `/rename`). It skips `main`, `master`, detached HEAD and non-git folders, so Claude's own auto-generated title can take over there.
 
 Steps 2–3 read the transcript JSONL at `transcript_path`, an internal format that may change between Claude Code versions, and require `jq`. The project name is the basename of the hook's `cwd`.
 
@@ -369,6 +388,15 @@ export CLAUDE_NOTIFY_TELEGRAM="false"
 ```
 
 Both default to `true` (enabled). Add to your shell profile to persist.
+
+All toggles:
+
+| Variable | Default | Effect when `false` |
+|----------|---------|---------------------|
+| `CLAUDE_NOTIFY_TELEGRAM` | `true` | No Telegram messages |
+| `CLAUDE_NOTIFY_DESKTOP` | `true` | No macOS desktop notifications |
+| `CLAUDE_NOTIFY_AUTO_TITLE` | `true` | Don't name new sessions after the git branch |
+| `CLAUDE_NOTIFY_MESSAGE_PREVIEW` | `true` | Don't include the first line of Claude's reply. Note: with previews on, part of your conversation is sent to Telegram |
 
 ### Log Notifications to File
 
