@@ -4,10 +4,26 @@
 
 set -euo pipefail
 
+# Keep stdout for hook JSON only: SessionStart feeds plain stdout to Claude as
+# context, so diagnostics go to stderr and JSON is written to fd 3
+exec 3>&1 1>&2
+
 # Escape text for Telegram HTML parse_mode
 html_escape() {
     # sed instead of ${var//}: bash 5.2+ treats & in the replacement as the match
     printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+# Truncate to N characters with "..." (UTF-8 locale so CJK text is never
+# cut mid-character, which Telegram would reject)
+truncate_text() {
+    local LC_ALL=en_US.UTF-8
+    local text="$1" max="$2"
+    if [[ ${#text} -gt $max ]]; then
+        printf '%s...' "${text:0:$max}"
+    else
+        printf '%s' "$text"
+    fi
 }
 
 # Escape text for embedding in an AppleScript string literal
@@ -40,10 +56,64 @@ NOTIFICATION_TYPE=$(parse_json "$INPUT" "notification_type")
 HOOK_CWD=$(parse_json "$INPUT" "cwd")
 TRANSCRIPT_PATH=$(parse_json "$INPUT" "transcript_path")
 SESSION_TITLE_INPUT=$(parse_json "$INPUT" "session_title")
+SESSION_ID=$(parse_json "$INPUT" "session_id")
+SOURCE=$(parse_json "$INPUT" "source")
+AGENT_TYPE=$(parse_json "$INPUT" "agent_type")
+LAST_MESSAGE=$(parse_json "$INPUT" "last_assistant_message")
 
 # Notification toggles (set to "false" to disable)
 ENABLE_TELEGRAM="${CLAUDE_NOTIFY_TELEGRAM:-true}"
 ENABLE_DESKTOP="${CLAUDE_NOTIFY_DESKTOP:-true}"
+ENABLE_AUTO_TITLE="${CLAUDE_NOTIFY_AUTO_TITLE:-true}"
+ENABLE_PREVIEW="${CLAUDE_NOTIFY_MESSAGE_PREVIEW:-true}"
+
+# Resolve session name: SessionStart's session_title input, then the latest
+# /rename title, then the auto-generated title from the transcript JSONL
+get_session_title() {
+    if [[ -n "$SESSION_TITLE_INPUT" ]]; then
+        echo "$SESSION_TITLE_INPUT"
+        return 0
+    fi
+    [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local line
+    line=$(grep '^{"type":"custom-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
+    if [[ -n "$line" ]]; then
+        echo "$line" | jq -r '.customTitle // empty' 2>/dev/null || true
+        return 0
+    fi
+    line=$(grep '^{"type":"ai-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
+    if [[ -n "$line" ]]; then
+        echo "$line" | jq -r '.aiTitle // empty' 2>/dev/null || true
+    fi
+    return 0
+}
+
+# Auto session name from the git branch; empty on main/master/detached HEAD
+# so Claude's own ai-title is not overridden by a meaningless name
+get_auto_title() {
+    local branch
+    branch=$(git -C "${HOOK_CWD:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    case "$branch" in
+        ""|HEAD|main|master) return 0 ;;
+    esac
+    echo "$branch"
+}
+
+SESSION_TITLE="$(get_session_title)"
+
+# Name new sessions automatically (same effect as /rename); runs before the
+# toggle checks so it works even with notifications disabled
+if [[ "$HOOK_EVENT" == "SessionStart" && "$SOURCE" == "startup" && "$ENABLE_AUTO_TITLE" == "true" \
+      && -z "$SESSION_TITLE_INPUT" ]] && command -v jq >/dev/null 2>&1; then
+    AUTO_TITLE="$(get_auto_title)"
+    if [[ -n "$AUTO_TITLE" ]]; then
+        SESSION_TITLE="$AUTO_TITLE"
+        jq -nc --arg t "$AUTO_TITLE" \
+            '{hookSpecificOutput: {hookEventName: "SessionStart", sessionTitle: $t}}' >&3
+    fi
+fi
 
 # Check for Telegram credentials
 if [[ "$ENABLE_TELEGRAM" == "true" && ( -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ) ]]; then
@@ -98,31 +168,6 @@ detect_terminal_bundle_id() {
 
 TERMINAL_BUNDLE_ID="$(detect_terminal_bundle_id)"
 
-# Resolve session name: SessionStart's session_title input, then the latest
-# /rename title, then the auto-generated title from the transcript JSONL
-get_session_title() {
-    if [[ -n "$SESSION_TITLE_INPUT" ]]; then
-        echo "$SESSION_TITLE_INPUT"
-        return 0
-    fi
-    [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]] || return 0
-    command -v jq >/dev/null 2>&1 || return 0
-
-    local line
-    line=$(grep '^{"type":"custom-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
-    if [[ -n "$line" ]]; then
-        echo "$line" | jq -r '.customTitle // empty' 2>/dev/null || true
-        return 0
-    fi
-    line=$(grep '^{"type":"ai-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
-    if [[ -n "$line" ]]; then
-        echo "$line" | jq -r '.aiTitle // empty' 2>/dev/null || true
-    fi
-    return 0
-}
-
-SESSION_TITLE="$(get_session_title)"
-
 # Telegram header: bold project name, plus italic session name when known
 TELEGRAM_HEADER="<b>$(html_escape "$PROJECT_DIR")</b>"
 [[ -n "$SESSION_TITLE" ]] && TELEGRAM_HEADER+=" · <i>$(html_escape "$SESSION_TITLE")</i>"
@@ -149,28 +194,44 @@ send_desktop_notification() {
     fi
 }
 
-# Calculate duration if session start exists
-if [[ -f ~/.claude/session_start.tmp ]]; then
-    START_TIME="$(cat ~/.claude/session_start.tmp)"
-    DURATION="$((CURRENT_TIME - START_TIME))"
+# Per-session start file so concurrent sessions don't clobber each other
+SESSION_START_FILE="$HOME/.claude/session_start.${SESSION_ID:-default}.tmp"
 
-    # Sanity check: if duration > 24 hours (86400 seconds), likely invalid
-    if [[ $DURATION -gt 86400 ]]; then
-        DURATION_TEXT="N/A (stale session)"
-    else
-        MINUTES="$((DURATION / 60))"
-        SECONDS="$((DURATION % 60))"
-        DURATION_TEXT="${MINUTES}m ${SECONDS}s"
+# Session duration, only when this session's start time is known
+DURATION_TEXT=""
+if [[ -f "$SESSION_START_FILE" ]]; then
+    START_TIME="$(cat "$SESSION_START_FILE" 2>/dev/null || echo "")"
+    if [[ "$START_TIME" =~ ^[0-9]+$ ]]; then
+        DURATION="$((CURRENT_TIME - START_TIME))"
+        # Sanity check: ignore durations over 24 hours (stale file)
+        if [[ $DURATION -ge 0 && $DURATION -le 86400 ]]; then
+            DURATION_TEXT="$((DURATION / 60))m $((DURATION % 60))s"
+        fi
     fi
-else
-    DURATION_TEXT="N/A"
 fi
+
+# First meaningful line of Claude's final message, stripped of markdown
+# (the text leaves the machine via Telegram; disable with CLAUDE_NOTIFY_MESSAGE_PREVIEW=false)
+PREVIEW=""
+if [[ "$ENABLE_PREVIEW" == "true" && -n "$LAST_MESSAGE" ]]; then
+    PREVIEW=$(printf '%s\n' "$LAST_MESSAGE" \
+        | sed -E 's/^[[:space:]#>*`-]+//; s/`|\*\*//g; /^[[:space:]]*$/d' | head -n1 || true)
+    PREVIEW="$(truncate_text "$PREVIEW" 120)"
+fi
+
+# Append "⏱ duration" and the message preview to a notification
+add_details() {
+    [[ -n "$PREVIEW" ]] && TELEGRAM_MESSAGE+=$'\n'"$(html_escape "$PREVIEW")"
+    [[ -n "$DURATION_TEXT" ]] && TELEGRAM_MESSAGE+=$'\n'"⏱ $DURATION_TEXT"
+    return 0
+}
 
 # Determine notification type and construct message
 case "$HOOK_EVENT" in
     "SessionStart")
-        # Session started - create timestamp file
-        echo "$CURRENT_TIME" > ~/.claude/session_start.tmp
+        # Session started - create timestamp file, drop ones from dead sessions
+        find "$HOME/.claude" -maxdepth 1 -name 'session_start.*.tmp' -mtime +1 -delete 2>/dev/null || true
+        echo "$CURRENT_TIME" > "$SESSION_START_FILE"
         EMOJI="🚀"
         ACTION="Session Started"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
@@ -189,20 +250,20 @@ case "$HOOK_EVENT" in
             EMOJI="🔐"
             ACTION="Tool Approval Needed"
             DETAILS="Claude is requesting permission to use a tool"
+        elif [[ "$NOTIFICATION_TYPE" == "agent_needs_input" ]]; then
+            # A background agent is blocked on the user
+            EMOJI="🙋"
+            ACTION="Agent Needs Input"
+            DETAILS="$(truncate_text "$MESSAGE" 100)"
         else
             # Generic notification
             EMOJI="🔔"
             ACTION="Notification"
-            # Truncate message if too long (at word boundary)
-            if [[ ${#MESSAGE} -gt 100 ]]; then
-                DETAILS="${MESSAGE:0:100}..."
-            else
-                DETAILS="$MESSAGE"
-            fi
+            DETAILS="$(truncate_text "$MESSAGE" 100)"
         fi
 
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"$'\n'"$(html_escape "$DETAILS")"
-        if [[ "$IS_PERMISSION" == "true" ]]; then
+        if [[ "$IS_PERMISSION" == "true" || "$NOTIFICATION_TYPE" == "agent_needs_input" ]]; then
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS" "Basso"
         else
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS"
@@ -214,15 +275,17 @@ case "$HOOK_EVENT" in
         EMOJI="✅"
         ACTION="Task Complete"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
-        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Hero"
+        add_details
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${PREVIEW:+ - $PREVIEW}" "Hero"
         ;;
 
     "SubagentStop")
         # Subagent completion
         EMOJI="🤖"
-        ACTION="Subagent Task Complete"
-        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
-        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Purr"
+        ACTION="Subagent Task Complete${AGENT_TYPE:+ ($AGENT_TYPE)}"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $(html_escape "$ACTION")"
+        [[ -n "$PREVIEW" ]] && TELEGRAM_MESSAGE+=$'\n'"$(html_escape "$PREVIEW")"
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${PREVIEW:+ - $PREVIEW}" "Purr"
         ;;
 
     "SessionEnd")
@@ -230,18 +293,18 @@ case "$HOOK_EVENT" in
         EMOJI="🏁"
         ACTION="Session Ended"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
-        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Submarine"
+        [[ -n "$DURATION_TEXT" ]] && TELEGRAM_MESSAGE+=$'\n'"⏱ $DURATION_TEXT"
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${DURATION_TEXT:+ (⏱ $DURATION_TEXT)}" "Submarine"
 
         # Clean up session start file
-        rm -f ~/.claude/session_start.tmp
+        rm -f "$SESSION_START_FILE"
         ;;
 
     *)
         # Unknown event type - log it for debugging
         EMOJI="ℹ️"
         ACTION="Unknown Event: $HOOK_EVENT"
-        MSG_PREVIEW="${MESSAGE:0:80}"
-        [[ ${#MESSAGE} -gt 80 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
+        MSG_PREVIEW="$(truncate_text "$MESSAGE" 80)"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $(html_escape "$ACTION")"$'\n'"$(html_escape "$MSG_PREVIEW")"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION"
         ;;
@@ -288,7 +351,14 @@ send_telegram_notification() {
 }
 
 if [[ "$ENABLE_TELEGRAM" == "true" ]]; then
-    send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
+    if [[ "$HOOK_EVENT" == "SessionStart" ]]; then
+        # SessionStart hooks run synchronously (their output sets the title), so
+        # detach the network call to avoid stalling startup on retries
+        # (close fd 3 too: it is the hook's stdout and would keep the pipe open)
+        ( send_telegram_notification </dev/null >/dev/null 2>&1 3>&- & )
+    else
+        send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
+    fi
 fi
 
 # Exit gracefully even if notification fails (don't block Claude Code)

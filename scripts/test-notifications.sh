@@ -35,9 +35,33 @@ echo '{
   "session_id": "test-123",
   "transcript_path": "'"$FIXTURE_TRANSCRIPT"'",
   "cwd": "/Users/test/project",
-  "hook_event_name": "SessionStart"
+  "hook_event_name": "SessionStart",
+  "source": "startup"
 }' | $HANDLER
 sleep 1
+echo ""
+
+# Test 0b: Auto session name from git branch (stdout must be only the hook JSON)
+echo "📝 Test 0b: Auto session title"
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+HOOK_STDOUT="$(echo '{
+  "session_id": "test-789",
+  "cwd": "'"$PWD"'",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}' | CLAUDE_NOTIFY_TELEGRAM=false CLAUDE_NOTIFY_DESKTOP=false $HANDLER 2>/dev/null)"
+case "$BRANCH" in
+    ""|HEAD|main|master) EXPECTED="" ;;
+    *) EXPECTED="$BRANCH" ;;
+esac
+ACTUAL="$(echo "$HOOK_STDOUT" | jq -r '.hookSpecificOutput.sessionTitle // empty' 2>/dev/null || echo "")"
+if [[ "$ACTUAL" == "$EXPECTED" ]]; then
+    echo "✅ sessionTitle output: '${ACTUAL}' (branch: ${BRANCH:-none})"
+else
+    echo "❌ sessionTitle output: expected '${EXPECTED}', got stdout: ${HOOK_STDOUT}"
+    exit 1
+fi
+rm -f ~/.claude/session_start.test-789.tmp
 echo ""
 
 # Test 1: Tool Approval Notification
@@ -62,13 +86,25 @@ echo '{
 }' | $HANDLER
 echo ""
 
+# Test 2b: Background agent needs input
+echo "📝 Test 2b: Agent Needs Input"
+echo '{
+  "session_id": "test-123",
+  "cwd": "/Users/test/project",
+  "hook_event_name": "Notification",
+  "notification_type": "agent_needs_input",
+  "message": "Agent research-1 is waiting for your answer"
+}' | $HANDLER
+echo ""
+
 # Test 3: Task Completion (Stop event)
 echo "📝 Test 3: Task Completion"
 echo '{
   "session_id": "test-123",
   "transcript_path": "'"$FIXTURE_TRANSCRIPT"'",
   "cwd": "/Users/test/project",
-  "hook_event_name": "Stop"
+  "hook_event_name": "Stop",
+  "last_assistant_message": "\n## Fixed `<auth>` & retry\n\nDetails follow..."
 }' | $HANDLER
 echo ""
 
@@ -78,7 +114,9 @@ echo '{
   "session_id": "test-123",
   "transcript_path": "'"$FIXTURE_TRANSCRIPT"'",
   "cwd": "/Users/test/project",
-  "hook_event_name": "SubagentStop"
+  "hook_event_name": "SubagentStop",
+  "agent_type": "Explore",
+  "last_assistant_message": "Found 3 call sites in src/"
 }' | $HANDLER
 echo ""
 
@@ -90,6 +128,7 @@ echo '{
   "hook_event_name": "SessionStart",
   "session_title": "named-at-launch"
 }' | $HANDLER
+rm -f ~/.claude/session_start.test-456.tmp
 echo ""
 
 # Test 5: Session End
@@ -106,12 +145,14 @@ echo "=========================================="
 echo "✅ All tests completed!"
 echo ""
 echo "If TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set,"
-echo "you should have received 7 different Telegram notifications:"
+echo "you should have received 8 different Telegram notifications:"
 echo "  0. Session Start"
 echo "  1. Tool Approval Request"
 echo "  2. Generic Notification"
-echo "  3. Task Completion"
-echo "  4. Subagent Completion"
-echo "  5. Session End"
+echo "  2b. Agent Needs Input"
+echo "  3. Task Completion (with preview + duration)"
+echo "  4. Subagent Completion (with agent type)"
+echo "  4b. Session Start with session_title"
+echo "  5. Session End (with duration)"
 echo ""
 echo "If not set, you should see warning messages instead."
