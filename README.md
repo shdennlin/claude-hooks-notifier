@@ -10,6 +10,7 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 - **🤖 Subagent Completed**: Notifies when subagent tasks finish
 - **🏁 Session End**: Final notification when session closes
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
+- **🏷️ Project + Session Name**: Every notification shows the project folder and the session name, so parallel sessions are easy to tell apart
 
 ## Setup
 
@@ -162,12 +163,31 @@ You should receive 7 different Telegram notifications, one for each event type.
 | Subagent Complete | 🤖 | Subagent task done | Project name, completion status |
 | Session End | 🏁 | Session closes | Project name, end status |
 
+### Message Format
+
+Telegram:
+
+```
+<b>my-project</b> · <i>fix-auth-flow</i>
+✅ Task Complete
+```
+
+Desktop: the project is the title, the session name is the subtitle.
+
+The session name is resolved in this order (omitted if none is found):
+
+1. `session_title` from the hook input (SessionStart only — set via `--name`, `/rename`, or a hook's `sessionTitle`)
+2. The latest `/rename` title in the session transcript (`custom-title` entry)
+3. Claude's auto-generated title in the transcript (`ai-title` entry)
+
+Steps 2–3 read the transcript JSONL at `transcript_path`, an internal format that may change between Claude Code versions, and require `jq`. The project name is the basename of the hook's `cwd`.
+
 ## Improvements
 
 This notification system includes several reliability and security enhancements:
 
 - **Robust JSON Parsing**: Uses `jq` when available, with fallback to grep/sed
-- **URL Encoding**: Properly encodes special characters for Telegram API safety
+- **Safe Encoding**: HTML-escapes dynamic text and lets `curl --data-urlencode` handle UTF-8 (Chinese/emoji session names work)
 - **Error Handling**: 3-attempt retry logic with 10-second timeout for network resilience
 - **Duration Validation**: Sanity checks prevent invalid duration calculations (>24h)
 - **Graceful Failures**: Never blocks Claude Code even if notifications fail

@@ -2,25 +2,19 @@
 # Claude Code Notification Handler for Telegram
 # Sends different notifications based on hook event type and context
 
-# shellcheck disable=SC2059 # printf format is intentionally from variable
 set -euo pipefail
 
-# URL encode function for safe Telegram messages
-url_encode() {
-    local string="${1}"
-    local strlen=${#string}
-    local encoded=""
-    local pos c o
+# Escape text for Telegram HTML parse_mode
+html_escape() {
+    # sed instead of ${var//}: bash 5.2+ treats & in the replacement as the match
+    printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
 
-    for (( pos=0 ; pos<strlen ; pos++ )); do
-        c=${string:$pos:1}
-        case "$c" in
-            [-_.~a-zA-Z0-9] ) o="${c}" ;;
-            * ) printf -v o '%%%02x' "'$c"
-        esac
-        encoded+="${o}"
-    done
-    echo "${encoded}"
+# Escape text for embedding in an AppleScript string literal
+applescript_escape() {
+    local s="${1//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '%s' "$s"
 }
 
 # Parse JSON with jq if available, fallback to grep/sed
@@ -42,6 +36,10 @@ INPUT=$(cat)
 # Parse JSON fields
 HOOK_EVENT=$(parse_json "$INPUT" "hook_event_name")
 MESSAGE=$(parse_json "$INPUT" "message")
+NOTIFICATION_TYPE=$(parse_json "$INPUT" "notification_type")
+HOOK_CWD=$(parse_json "$INPUT" "cwd")
+TRANSCRIPT_PATH=$(parse_json "$INPUT" "transcript_path")
+SESSION_TITLE_INPUT=$(parse_json "$INPUT" "session_title")
 
 # Notification toggles (set to "false" to disable)
 ENABLE_TELEGRAM="${CLAUDE_NOTIFY_TELEGRAM:-true}"
@@ -60,7 +58,7 @@ if [[ "$ENABLE_TELEGRAM" != "true" && "$ENABLE_DESKTOP" != "true" ]]; then
 fi
 
 # Common variables
-PROJECT_DIR="$(basename "$(pwd)")"
+PROJECT_DIR="$(basename "${HOOK_CWD:-$(pwd)}")"
 TIMESTAMP="$(date '+%H:%M:%S')"
 DATE="$(date '+%Y-%m-%d')"
 CURRENT_TIME="$(date +%s)"
@@ -100,6 +98,35 @@ detect_terminal_bundle_id() {
 
 TERMINAL_BUNDLE_ID="$(detect_terminal_bundle_id)"
 
+# Resolve session name: SessionStart's session_title input, then the latest
+# /rename title, then the auto-generated title from the transcript JSONL
+get_session_title() {
+    if [[ -n "$SESSION_TITLE_INPUT" ]]; then
+        echo "$SESSION_TITLE_INPUT"
+        return 0
+    fi
+    [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local line
+    line=$(grep '^{"type":"custom-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
+    if [[ -n "$line" ]]; then
+        echo "$line" | jq -r '.customTitle // empty' 2>/dev/null || true
+        return 0
+    fi
+    line=$(grep '^{"type":"ai-title"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n1 || true)
+    if [[ -n "$line" ]]; then
+        echo "$line" | jq -r '.aiTitle // empty' 2>/dev/null || true
+    fi
+    return 0
+}
+
+SESSION_TITLE="$(get_session_title)"
+
+# Telegram header: bold project name, plus italic session name when known
+TELEGRAM_HEADER="<b>$(html_escape "$PROJECT_DIR")</b>"
+[[ -n "$SESSION_TITLE" ]] && TELEGRAM_HEADER+=" · <i>$(html_escape "$SESSION_TITLE")</i>"
+
 # Helper: send macOS desktop notification (respects ENABLE_DESKTOP toggle)
 # Usage: send_desktop_notification "title" "message" ["sound"]
 send_desktop_notification() {
@@ -111,10 +138,12 @@ send_desktop_notification() {
 
     if command -v terminal-notifier >/dev/null 2>&1; then
         local args=(-title "$title" -message "$message" -activate "$TERMINAL_BUNDLE_ID")
+        [[ -n "$SESSION_TITLE" ]] && args+=(-subtitle "$SESSION_TITLE")
         [[ -n "$sound" ]] && args+=(-sound "$sound")
         terminal-notifier "${args[@]}" 2>/dev/null || true
     elif command -v osascript >/dev/null 2>&1; then
-        local script="display notification \"$message\" with title \"$title\""
+        local script="display notification \"$(applescript_escape "$message")\" with title \"$(applescript_escape "$title")\""
+        [[ -n "$SESSION_TITLE" ]] && script="$script subtitle \"$(applescript_escape "$SESSION_TITLE")\""
         [[ -n "$sound" ]] && script="$script sound name \"$sound\""
         osascript -e "$script" 2>/dev/null || true
     fi
@@ -144,13 +173,18 @@ case "$HOOK_EVENT" in
         echo "$CURRENT_TIME" > ~/.claude/session_start.tmp
         EMOJI="🚀"
         ACTION="Session Started"
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Glass"
         ;;
 
     "Notification")
         # Parse notification message to determine specific type
-        if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+        IS_PERMISSION="false"
+        if [[ "$NOTIFICATION_TYPE" == "permission_prompt" ]] || echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+            IS_PERMISSION="true"
+        fi
+
+        if [[ "$IS_PERMISSION" == "true" ]]; then
             # Tool approval request - HIGHEST PRIORITY
             EMOJI="🔐"
             ACTION="Tool Approval Needed"
@@ -167,8 +201,8 @@ case "$HOOK_EVENT" in
             fi
         fi
 
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$DETAILS")"
-        if echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"$'\n'"$(html_escape "$DETAILS")"
+        if [[ "$IS_PERMISSION" == "true" ]]; then
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS" "Basso"
         else
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS"
@@ -179,7 +213,7 @@ case "$HOOK_EVENT" in
         # Main task completion
         EMOJI="✅"
         ACTION="Task Complete"
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Hero"
         ;;
 
@@ -187,7 +221,7 @@ case "$HOOK_EVENT" in
         # Subagent completion
         EMOJI="🤖"
         ACTION="Subagent Task Complete"
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Purr"
         ;;
 
@@ -195,7 +229,7 @@ case "$HOOK_EVENT" in
         # Session ended
         EMOJI="🏁"
         ACTION="Session Ended"
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Submarine"
 
         # Clean up session start file
@@ -208,7 +242,7 @@ case "$HOOK_EVENT" in
         ACTION="Unknown Event: $HOOK_EVENT"
         MSG_PREVIEW="${MESSAGE:0:80}"
         [[ ${#MESSAGE} -gt 80 ]] && MSG_PREVIEW="${MSG_PREVIEW}..."
-        TELEGRAM_MESSAGE="<b>$PROJECT_DIR</b>%0A$EMOJI $ACTION%0A$(url_encode "$MSG_PREVIEW")"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $(html_escape "$ACTION")"$'\n'"$(html_escape "$MSG_PREVIEW")"
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION"
         ;;
 esac
@@ -224,7 +258,7 @@ send_telegram_notification() {
         HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null --max-time 10 -X POST \
             "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=$TELEGRAM_MESSAGE" \
+            --data-urlencode "text=$TELEGRAM_MESSAGE" \
             -d "parse_mode=HTML" 2>/dev/null)
 
         # Check if curl succeeded
