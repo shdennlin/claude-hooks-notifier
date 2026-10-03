@@ -1,6 +1,6 @@
 {
   "name": "session-notifier",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Telegram and macOS desktop notifications for Claude Code sessions, approvals, and task completion",
   "author": {
     "name": "Shawn Lin"
