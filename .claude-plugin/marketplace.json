@@ -1,0 +1,14 @@
+{
+  "name": "shdennlin-notifier",
+  "owner": {
+    "name": "Shawn Lin"
+  },
+  "plugins": [
+    {
+      "name": "session-notifier",
+      "source": "./",
+      "description": "Telegram and macOS desktop notifications for Claude Code"
+    }
+  ],
+  "description": "Notification hooks for Claude Code by Shawn Lin"
+}

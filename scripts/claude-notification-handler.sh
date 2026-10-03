@@ -61,11 +61,15 @@ SOURCE=$(parse_json "$INPUT" "source")
 AGENT_TYPE=$(parse_json "$INPUT" "agent_type")
 LAST_MESSAGE=$(parse_json "$INPUT" "last_assistant_message")
 
+# Config precedence: plugin userConfig (CLAUDE_PLUGIN_OPTION_*) > legacy env vars > default
+TELEGRAM_BOT_TOKEN="${CLAUDE_PLUGIN_OPTION_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
+TELEGRAM_CHAT_ID="${CLAUDE_PLUGIN_OPTION_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+
 # Notification toggles (set to "false" to disable)
-ENABLE_TELEGRAM="${CLAUDE_NOTIFY_TELEGRAM:-true}"
-ENABLE_DESKTOP="${CLAUDE_NOTIFY_DESKTOP:-true}"
-ENABLE_AUTO_TITLE="${CLAUDE_NOTIFY_AUTO_TITLE:-true}"
-ENABLE_PREVIEW="${CLAUDE_NOTIFY_MESSAGE_PREVIEW:-true}"
+ENABLE_TELEGRAM="${CLAUDE_PLUGIN_OPTION_NOTIFY_TELEGRAM:-${CLAUDE_NOTIFY_TELEGRAM:-true}}"
+ENABLE_DESKTOP="${CLAUDE_PLUGIN_OPTION_NOTIFY_DESKTOP:-${CLAUDE_NOTIFY_DESKTOP:-true}}"
+ENABLE_AUTO_TITLE="${CLAUDE_PLUGIN_OPTION_NOTIFY_AUTO_TITLE:-${CLAUDE_NOTIFY_AUTO_TITLE:-true}}"
+ENABLE_PREVIEW="${CLAUDE_PLUGIN_OPTION_NOTIFY_MESSAGE_PREVIEW:-${CLAUDE_NOTIFY_MESSAGE_PREVIEW:-true}}"
 
 # Resolve session name: SessionStart's session_title input, then the latest
 # /rename title, then the auto-generated title from the transcript JSONL

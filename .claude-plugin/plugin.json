@@ -1,0 +1,46 @@
+{
+  "name": "session-notifier",
+  "version": "1.0.0",
+  "description": "Telegram and macOS desktop notifications for Claude Code sessions, approvals, and task completion",
+  "author": {
+    "name": "Shawn Lin"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "telegram_bot_token": {
+      "type": "string",
+      "title": "Telegram bot token",
+      "description": "Token from @BotFather. Leave empty to skip Telegram notifications.",
+      "sensitive": true
+    },
+    "telegram_chat_id": {
+      "type": "string",
+      "title": "Telegram chat ID",
+      "description": "Chat ID that receives notifications (see https://api.telegram.org/bot<TOKEN>/getUpdates)"
+    },
+    "notify_telegram": {
+      "type": "boolean",
+      "title": "Send Telegram messages",
+      "description": "Enable Telegram notifications",
+      "default": true
+    },
+    "notify_desktop": {
+      "type": "boolean",
+      "title": "Show macOS desktop notifications",
+      "description": "Enable native desktop notifications (macOS only)",
+      "default": true
+    },
+    "notify_auto_title": {
+      "type": "boolean",
+      "title": "Auto-name sessions",
+      "description": "Name new sessions after the git branch",
+      "default": true
+    },
+    "notify_message_preview": {
+      "type": "boolean",
+      "title": "Include reply preview",
+      "description": "Include the first line of Claude's reply. When on, part of your conversation is sent to Telegram.",
+      "default": true
+    }
+  }
+}

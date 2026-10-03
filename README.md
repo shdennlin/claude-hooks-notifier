@@ -13,146 +13,37 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
 - **🏷️ Project + Session Name**: Every notification shows the project folder and the session name, so parallel sessions are easy to tell apart. New sessions on a feature branch are auto-named after the branch
 
-## Setup
+## Setup (Plugin — Recommended)
 
-### 1. Environment Variables
+1. Create a Telegram bot with [@BotFather](https://t.me/botfather) (`/newbot`), send your bot any message, then get your chat ID from `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+2. Install the plugin:
 
-Set these environment variables for Telegram notifications:
+```
+/plugin marketplace add shdennlin/claude-hooks-notifier
+/plugin install session-notifier@shdennlin-notifier
+```
+
+   For a local checkout, use the path instead: `/plugin marketplace add /path/to/claude-notification-handler`.
+3. Claude Code prompts for the bot token (stored in your system keychain), chat ID, and the on/off toggles. No settings files to edit.
+
+Change options later in `/config`, or run `/plugin configure session-notifier`.
+
+To try it without installing: `claude --plugin-dir .`, then `/plugin configure session-notifier`.
+
+### Upgrading from manual hooks
+
+Remove the old `claude-notification-handler.sh` entries from `~/.claude/settings.json` (or `.claude/settings.json`), otherwise every event notifies twice. Existing `TELEGRAM_BOT_TOKEN` / `CLAUDE_NOTIFY_*` environment variables still work as a fallback; plugin options take precedence.
+
+## Setup (Manual Hooks)
+
+Use this if you don't want a plugin.
 
 ```bash
 export TELEGRAM_BOT_TOKEN="your_bot_token_here"
 export TELEGRAM_CHAT_ID="your_chat_id_here"
 ```
 
-Add them to your shell profile (~/.bashrc, ~/.zshrc, etc.) to persist across sessions.
-
-### 2. Create Telegram Bot
-
-1. Message [@BotFather](https://t.me/botfather) on Telegram
-2. Send `/newbot` and follow instructions
-3. Copy the bot token provided
-4. Start a chat with your bot and send any message
-5. Get your chat ID: `https://api.telegram.org/bot<TOKEN>/getUpdates`
-
-### 3. Installation
-
-**Option A: Interactive Setup (Recommended)**
-
-1. Open Claude Code and run `/hooks`
-2. For each hook event (SessionStart, Notification, Stop, SubagentStop, SessionEnd):
-   - Select the event type
-   - Add matcher (use `*` to match all)
-   - Enter command: `./scripts/claude-notification-handler.sh`
-   - Choose **User settings** for global config or **Project settings** for project-specific
-
-**Option B: Manual Configuration**
-
-Edit your Claude Code settings file:
-- **Global**: `~/.claude/settings.json` (applies to all projects)
-- **Project**: `.claude/settings.json` (shared with team)
-- **Local**: `.claude/settings.local.json` (personal, not committed)
-
-Add the hooks configuration (see `hooks.json.example` for reference):
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude-notification-handler.sh"
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "matcher": "permission_prompt|agent_needs_input",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude-notification-handler.sh",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude-notification-handler.sh",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude-notification-handler.sh",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude-notification-handler.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Why the config looks like this:
-
-- **`async: true`** on Notification/Stop/SubagentStop runs the handler in the background, so a slow or failing Telegram request (up to 3 retries × 10s) never blocks Claude.
-- **SessionStart stays synchronous** because its JSON output names the session (`sessionTitle`); async hooks have their output discarded. The handler detaches its own Telegram call on SessionStart, so startup is not delayed.
-- **SessionEnd stays synchronous** so the final notification is sent before Claude Code exits.
-- **Notification matcher `permission_prompt|agent_needs_input`** only forwards notifications that need you. Remove the matcher to receive every notification type (idle prompts, auth, MCP dialogs, …) as a generic 🔔.
-
-**Note**: If using global configuration (`~/.claude/settings.json`), use absolute paths:
-```json
-"command": "/absolute/path/to/scripts/claude-notification-handler.sh"
-```
-
-### 4. Script Installation
-
-**For Project-Specific Setup:**
-```bash
-# Make scripts executable
-chmod +x scripts/claude-notification-handler.sh
-chmod +x scripts/test-notifications.sh
-
-# Optional: Copy example settings to .claude directory
-mkdir -p .claude
-cp .claude/settings.json.example .claude/settings.json
-# Edit .claude/settings.json as needed
-```
-
-**For Global Setup:**
-```bash
-# Create a shared location
-mkdir -p ~/claude-hooks
-cp -r scripts ~/claude-hooks/
-chmod +x ~/claude-hooks/scripts/*.sh
-
-# Update hooks configuration to use absolute paths
-# Edit ~/.claude/settings.json and use:
-# "command": "/Users/your-username/claude-hooks/scripts/claude-notification-handler.sh"
-```
+Add them to your shell profile to persist, then copy the `hooks` block from `hooks.json.example` into `~/.claude/settings.json` (global), `.claude/settings.json` (project), or `.claude/settings.local.json` (personal), using the absolute path to `scripts/claude-notification-handler.sh` and `chmod +x scripts/*.sh`.
 
 ## Testing
 
