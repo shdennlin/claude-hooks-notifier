@@ -39,7 +39,7 @@
     "notify_message_preview": {
       "type": "boolean",
       "title": "Include reply preview",
-      "description": "Include the first line of Claude's reply. When on, part of your conversation is sent to Telegram.",
+      "description": "Include Claude's final reply (expandable in Telegram, first line on desktop). When on, that reply is sent to Telegram.",
       "default": true
     }
   }

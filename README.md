@@ -7,7 +7,7 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 - **🚀 Session Start**: Notifies when Claude Code session begins
 - **🔐 Tool Approval**: Alerts when Claude requests permission to use tools
 - **🙋 Agent Needs Input**: Alerts when a background agent is waiting on you
-- **✅ Task Completed**: Completion notification with the first line of Claude's reply and session duration
+- **✅ Task Completed**: Completion notification with Claude's reply (expandable in Telegram) and session duration
 - **🤖 Subagent Completed**: Notifies when subagent tasks finish, including the agent type (e.g. `Explore`)
 - **🏁 Session End**: Final notification when session closes, with total duration
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
@@ -63,8 +63,8 @@ You should receive 7 different Telegram notifications, one for each event type.
 | Session Start | 🚀 | Claude Code starts | Project name, action |
 | Tool Approval | 🔐 | Permission request | Project name, approval details |
 | Agent Needs Input | 🙋 | Background agent waiting | Project name, agent message |
-| Task Complete | ✅ | Main task done | Project name, reply preview, duration |
-| Subagent Complete | 🤖 | Subagent task done | Project name, agent type, reply preview |
+| Task Complete | ✅ | Main task done | Project name, duration, expandable reply |
+| Subagent Complete | 🤖 | Subagent task done | Project name, agent type, expandable reply |
 | Session End | 🏁 | Session closes | Project name, total duration |
 
 ### Message Format
@@ -74,13 +74,14 @@ Telegram:
 ```
 <b>my-project</b> · <i>fix-auth-flow</i>
 ✅ Task Complete
-Fixed the token refresh race in auth middleware
 ⏱ 12m 40s
+<blockquote expandable>Fixed the token refresh race in auth middleware
+...full reply...</blockquote>
 ```
 
 Desktop: the project is the title, the session name is the subtitle.
 
-The preview line is the first non-empty line of Claude's final message (`last_assistant_message`), with markdown markers stripped and capped at 120 characters. The duration line appears only when the handler saw this session's SessionStart.
+In Telegram, Claude's full final message (`last_assistant_message`) appears in a collapsed blockquote: the first few lines show, and you tap it to expand the rest. Inline-code backticks and `**` are stripped, and the text is capped at 3500 characters to stay under Telegram's message limit. The desktop notification shows only the first non-empty line, capped at 120 characters. The duration line appears only when the handler saw this session's SessionStart.
 
 The session name is resolved in this order (omitted if none is found):
 
@@ -287,7 +288,7 @@ All toggles:
 | `CLAUDE_NOTIFY_TELEGRAM` | `true` | No Telegram messages |
 | `CLAUDE_NOTIFY_DESKTOP` | `true` | No macOS desktop notifications |
 | `CLAUDE_NOTIFY_AUTO_TITLE` | `true` | Don't name new sessions after the git branch |
-| `CLAUDE_NOTIFY_MESSAGE_PREVIEW` | `true` | Don't include the first line of Claude's reply. Note: with previews on, part of your conversation is sent to Telegram |
+| `CLAUDE_NOTIFY_MESSAGE_PREVIEW` | `true` | Don't include Claude's reply (expandable full text in Telegram, first line on desktop). Note: when on, Claude's final reply is sent to Telegram |
 
 ### Log Notifications to File
 

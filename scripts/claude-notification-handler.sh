@@ -223,11 +223,26 @@ if [[ "$ENABLE_PREVIEW" == "true" && -n "$LAST_MESSAGE" ]]; then
     PREVIEW="$(truncate_text "$PREVIEW" 120)"
 fi
 
-# Append "⏱ duration" and the message preview to a notification
-add_details() {
-    [[ -n "$PREVIEW" ]] && TELEGRAM_MESSAGE+=$'\n'"$(html_escape "$PREVIEW")"
-    [[ -n "$DURATION_TEXT" ]] && TELEGRAM_MESSAGE+=$'\n'"⏱ $DURATION_TEXT"
+# Full reply for Telegram, shown in a collapsed blockquote the reader can expand;
+# capped well below Telegram's 4096-char message limit to leave room for the header
+FULL_REPLY=""
+if [[ "$ENABLE_PREVIEW" == "true" && -n "$LAST_MESSAGE" ]]; then
+    FULL_REPLY=$(printf '%s\n' "$LAST_MESSAGE" \
+        | sed -E 's/`|\*\*//g' | sed -e '/./,$!d' | cat -s || true)
+    FULL_REPLY="${FULL_REPLY%$'\n'}"
+    FULL_REPLY="$(truncate_text "$FULL_REPLY" 3500)"
+fi
+
+# Append the full reply as an expandable blockquote (collapsed, it shows the first lines)
+add_reply() {
+    [[ -n "$FULL_REPLY" ]] && TELEGRAM_MESSAGE+=$'\n'"<blockquote expandable>$(html_escape "$FULL_REPLY")</blockquote>"
     return 0
+}
+
+# Append "⏱ duration" and the expandable reply to a notification
+add_details() {
+    [[ -n "$DURATION_TEXT" ]] && TELEGRAM_MESSAGE+=$'\n'"⏱ $DURATION_TEXT"
+    add_reply
 }
 
 # Determine notification type and construct message
@@ -288,7 +303,7 @@ case "$HOOK_EVENT" in
         EMOJI="🤖"
         ACTION="Subagent Task Complete${AGENT_TYPE:+ ($AGENT_TYPE)}"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $(html_escape "$ACTION")"
-        [[ -n "$PREVIEW" ]] && TELEGRAM_MESSAGE+=$'\n'"$(html_escape "$PREVIEW")"
+        add_reply
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${PREVIEW:+ - $PREVIEW}" "Purr"
         ;;
 
