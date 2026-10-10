@@ -53,12 +53,16 @@ INPUT=$(cat)
 HOOK_EVENT=$(parse_json "$INPUT" "hook_event_name")
 MESSAGE=$(parse_json "$INPUT" "message")
 NOTIFICATION_TYPE=$(parse_json "$INPUT" "notification_type")
+# StopFailure: the live payload carries `error` (e.g. authentication_failed);
+# the docs list error_type/error_message instead, so accept either
+ERROR_TYPE=$(parse_json "$INPUT" "error")
+[[ -z "$ERROR_TYPE" ]] && ERROR_TYPE=$(parse_json "$INPUT" "error_type")
+ERROR_TEXT=$(parse_json "$INPUT" "error_message")
 HOOK_CWD=$(parse_json "$INPUT" "cwd")
 TRANSCRIPT_PATH=$(parse_json "$INPUT" "transcript_path")
 SESSION_TITLE_INPUT=$(parse_json "$INPUT" "session_title")
 SESSION_ID=$(parse_json "$INPUT" "session_id")
 SOURCE=$(parse_json "$INPUT" "source")
-AGENT_TYPE=$(parse_json "$INPUT" "agent_type")
 LAST_MESSAGE=$(parse_json "$INPUT" "last_assistant_message")
 
 # Config precedence: plugin userConfig (CLAUDE_PLUGIN_OPTION_*) > legacy env vars > default
@@ -248,19 +252,25 @@ add_details() {
 # Determine notification type and construct message
 case "$HOOK_EVENT" in
     "SessionStart")
-        # Session started - create timestamp file, drop ones from dead sessions
+        # Session started - create timestamp file, drop ones from dead sessions.
+        # Silent on purpose: the hook still runs for the start time (the
+        # duration on Task Complete / Session Ended) and the auto title above.
         find "$HOME/.claude" -maxdepth 1 -name 'session_start.*.tmp' -mtime +1 -delete 2>/dev/null || true
         echo "$CURRENT_TIME" > "$SESSION_START_FILE"
-        EMOJI="🚀"
-        ACTION="Session Started"
-        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
-        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION" "Glass"
+        exit 0
         ;;
 
     "Notification")
         # Parse notification message to determine specific type
+        # An MCP elicitation asks for input, whatever its wording, so it must
+        # not be taken for a permission request by the message match below
+        IS_ELICITATION="false"
+        case "$NOTIFICATION_TYPE" in
+            elicitation_dialog|elicitation_url_dialog) IS_ELICITATION="true" ;;
+        esac
+
         IS_PERMISSION="false"
-        if [[ "$NOTIFICATION_TYPE" == "permission_prompt" ]] || echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; then
+        if [[ "$IS_ELICITATION" != "true" ]] && { [[ "$NOTIFICATION_TYPE" == "permission_prompt" ]] || echo "$MESSAGE" | grep -qiE "(permission|approve|allow)"; }; then
             IS_PERMISSION="true"
         fi
 
@@ -269,6 +279,11 @@ case "$HOOK_EVENT" in
             EMOJI="🔐"
             ACTION="Tool Approval Needed"
             DETAILS="Claude is requesting permission to use a tool"
+        elif [[ "$IS_ELICITATION" == "true" ]]; then
+            # An MCP server is asking the user to fill in a form or open a URL
+            EMOJI="📝"
+            ACTION="Input Requested"
+            DETAILS="$(truncate_text "$MESSAGE" 100)"
         elif [[ "$NOTIFICATION_TYPE" == "agent_needs_input" ]]; then
             # A background agent is blocked on the user
             EMOJI="🙋"
@@ -282,7 +297,7 @@ case "$HOOK_EVENT" in
         fi
 
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"$'\n'"$(html_escape "$DETAILS")"
-        if [[ "$IS_PERMISSION" == "true" || "$NOTIFICATION_TYPE" == "agent_needs_input" ]]; then
+        if [[ "$IS_PERMISSION" == "true" || "$IS_ELICITATION" == "true" || "$NOTIFICATION_TYPE" == "agent_needs_input" ]]; then
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS" "Basso"
         else
             send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION - $DETAILS"
@@ -298,13 +313,19 @@ case "$HOOK_EVENT" in
         send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${PREVIEW:+ - $PREVIEW}" "Hero"
         ;;
 
-    "SubagentStop")
-        # Subagent completion
-        EMOJI="🤖"
-        ACTION="Subagent Task Complete${AGENT_TYPE:+ ($AGENT_TYPE)}"
-        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $(html_escape "$ACTION")"
-        add_reply
-        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${PREVIEW:+ - $PREVIEW}" "Purr"
+    "StopFailure")
+        # The turn ended on an API error, so Stop never fires for it
+        EMOJI="⚠️"
+        ACTION="Task Failed"
+        # The error kind, then the human text (last_assistant_message holds it
+        # in the live payload, e.g. "Failed to authenticate. API Error: 401 ...")
+        DETAILS="$ERROR_TYPE"
+        FAIL_TEXT="${ERROR_TEXT:-$LAST_MESSAGE}"
+        [[ -n "$FAIL_TEXT" ]] && DETAILS="${DETAILS:+$DETAILS - }$FAIL_TEXT"
+        DETAILS="$(truncate_text "${DETAILS:-$MESSAGE}" 100)"
+        TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
+        [[ -n "$DETAILS" ]] && TELEGRAM_MESSAGE+=$'\n'"$(html_escape "$DETAILS")"
+        send_desktop_notification "$PROJECT_DIR" "$EMOJI $ACTION${DETAILS:+ - $DETAILS}" "Basso"
         ;;
 
     "SessionEnd")
@@ -370,14 +391,7 @@ send_telegram_notification() {
 }
 
 if [[ "$ENABLE_TELEGRAM" == "true" ]]; then
-    if [[ "$HOOK_EVENT" == "SessionStart" ]]; then
-        # SessionStart hooks run synchronously (their output sets the title), so
-        # detach the network call to avoid stalling startup on retries
-        # (close fd 3 too: it is the hook's stdout and would keep the pipe open)
-        ( send_telegram_notification </dev/null >/dev/null 2>&1 3>&- & )
-    else
-        send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
-    fi
+    send_telegram_notification || echo "⚠️ Telegram notification failed for $HOOK_EVENT event (non-fatal)" >&2
 fi
 
 # Exit gracefully even if notification fails (don't block Claude Code)

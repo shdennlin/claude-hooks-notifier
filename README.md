@@ -4,11 +4,11 @@ Enhanced Claude Code notification system that sends different Telegram messages 
 
 ## Features
 
-- **🚀 Session Start**: Notifies when Claude Code session begins
 - **🔐 Tool Approval**: Alerts when Claude requests permission to use tools
 - **🙋 Agent Needs Input**: Alerts when a background agent is waiting on you
+- **📝 Input Requested**: Alerts when an MCP server asks you to fill in a form or open a URL
+- **⚠️ Task Failed**: Alerts when a turn ends on an API error (Claude Code fires `StopFailure`, not `Stop`, for these)
 - **✅ Task Completed**: Completion notification with Claude's reply (expandable in Telegram) and session duration
-- **🤖 Subagent Completed**: Notifies when subagent tasks finish, including the agent type (e.g. `Explore`)
 - **🏁 Session End**: Final notification when session closes, with total duration
 - **💻 macOS Desktop Notifications**: Native notifications alongside Telegram alerts (macOS only)
 - **🏷️ Project + Session Name**: Every notification shows the project folder and the session name, so parallel sessions are easy to tell apart. New sessions on a feature branch are auto-named after the branch
@@ -54,17 +54,17 @@ Test the notification system without waiting for actual Claude Code events:
 ./scripts/test-notifications.sh
 ```
 
-You should receive 7 different Telegram notifications, one for each event type.
+You should receive 7 Telegram notifications: one for each of the six event types below, plus one generic notification.
 
 ## Notification Types
 
 | Event | Emoji | Trigger | Information Included |
 |-------|-------|---------|---------------------|
-| Session Start | 🚀 | Claude Code starts | Project name, action |
 | Tool Approval | 🔐 | Permission request | Project name, approval details |
 | Agent Needs Input | 🙋 | Background agent waiting | Project name, agent message |
+| Input Requested | 📝 | MCP elicitation (`elicitation_dialog`, `elicitation_url_dialog`) | Project name, request message |
+| Task Failed | ⚠️ | Turn ended on an API error (`StopFailure`) | Project name, error |
 | Task Complete | ✅ | Main task done | Project name, duration, expandable reply |
-| Subagent Complete | 🤖 | Subagent task done | Project name, agent type, expandable reply |
 | Session End | 🏁 | Session closes | Project name, total duration |
 
 ### Message Format
@@ -90,6 +90,8 @@ The session name is resolved in this order (omitted if none is found):
 3. Claude's auto-generated title in the transcript (`ai-title` entry)
 
 **Auto-naming**: on `SessionStart` with `source: startup`, when no title is set yet, the handler names the session after the current git branch (same effect as `/rename`). It skips `main`, `master`, detached HEAD and non-git folders, so Claude's own auto-generated title can take over there.
+
+`SessionStart` sends no notification. The hook stays registered because it records the session's start time (the duration shown on Task Complete and Session Ended) and applies the auto-naming above.
 
 Steps 2–3 read the transcript JSONL at `transcript_path`, an internal format that may change between Claude Code versions, and require `jq`. The project name is the basename of the hook's `cwd`.
 
@@ -130,7 +132,7 @@ Edit your Claude Code settings file and remove unwanted hook events:
 {
   "hooks": {
     "SessionStart": [...],
-    // "SubagentStop": [...],  // Remove or comment out to disable
+    // "StopFailure": [...],  // Remove or comment out to disable
     "Stop": [...]
   }
 }

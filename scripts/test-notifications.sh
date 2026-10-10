@@ -29,8 +29,8 @@ cat > "$FIXTURE_TRANSCRIPT" <<'JSONL'
 JSONL
 echo ""
 
-# Test 0: Session Start
-echo "📝 Test 0: Session Start"
+# Test 0: Session Start (silent: records the start time for the duration tests)
+echo "📝 Test 0: Session Start (no notification)"
 echo '{
   "session_id": "test-123",
   "transcript_path": "'"$FIXTURE_TRANSCRIPT"'",
@@ -97,6 +97,28 @@ echo '{
 }' | $HANDLER
 echo ""
 
+# Test 2c: MCP elicitation (the wording must not read as a permission request)
+echo "📝 Test 2c: Input Requested"
+echo '{
+  "session_id": "test-123",
+  "cwd": "/Users/test/project",
+  "hook_event_name": "Notification",
+  "notification_type": "elicitation_dialog",
+  "message": "Allow the server to continue? Fill in the form"
+}' | $HANDLER
+echo ""
+
+# Test 2d: a turn that ended on an API error fires StopFailure, not Stop
+echo "📝 Test 2d: Turn Failed"
+echo '{
+  "session_id": "test-123",
+  "cwd": "/Users/test/project",
+  "hook_event_name": "StopFailure",
+  "error": "authentication_failed",
+  "last_assistant_message": "Failed to authenticate. API Error: 401 API key is invalid."
+}' | $HANDLER
+echo ""
+
 # Test 3: Task Completion (Stop event)
 echo "📝 Test 3: Task Completion"
 echo '{
@@ -108,20 +130,8 @@ echo '{
 }' | $HANDLER
 echo ""
 
-# Test 4: Subagent Completion
-echo "📝 Test 4: Subagent Completion"
-echo '{
-  "session_id": "test-123",
-  "transcript_path": "'"$FIXTURE_TRANSCRIPT"'",
-  "cwd": "/Users/test/project",
-  "hook_event_name": "SubagentStop",
-  "agent_type": "Explore",
-  "last_assistant_message": "Found 3 call sites in src/"
-}' | $HANDLER
-echo ""
-
-# Test 4b: Session name from SessionStart's session_title input
-echo "📝 Test 4b: Session Start with session_title"
+# Test 4b: Session name from SessionStart's session_title input (no notification)
+echo "📝 Test 4b: Session Start with session_title (no notification)"
 echo '{
   "session_id": "test-456",
   "cwd": "/Users/test/project",
@@ -145,14 +155,15 @@ echo "=========================================="
 echo "✅ All tests completed!"
 echo ""
 echo "If TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set,"
-echo "you should have received 8 different Telegram notifications:"
-echo "  0. Session Start"
+echo "you should have received 7 different Telegram notifications:"
 echo "  1. Tool Approval Request"
 echo "  2. Generic Notification"
 echo "  2b. Agent Needs Input"
+echo "  2c. Input Requested (MCP elicitation)"
+echo "  2d. Task Failed (StopFailure)"
 echo "  3. Task Completion (with preview + duration)"
-echo "  4. Subagent Completion (with agent type)"
-echo "  4b. Session Start with session_title"
 echo "  5. Session End (with duration)"
+echo ""
+echo "Tests 0, 0b and 4b are SessionStart events and send nothing."
 echo ""
 echo "If not set, you should see warning messages instead."
