@@ -320,7 +320,9 @@ case "$HOOK_EVENT" in
         # The error kind, then the human text (last_assistant_message holds it
         # in the live payload, e.g. "Failed to authenticate. API Error: 401 ...")
         DETAILS="$ERROR_TYPE"
-        FAIL_TEXT="${ERROR_TEXT:-$LAST_MESSAGE}"
+        # last_assistant_message is reply text, so it honours the preview toggle
+        FAIL_TEXT="${ERROR_TEXT:-}"
+        [[ -z "$FAIL_TEXT" && "$ENABLE_PREVIEW" == "true" ]] && FAIL_TEXT="$LAST_MESSAGE"
         [[ -n "$FAIL_TEXT" ]] && DETAILS="${DETAILS:+$DETAILS - }$FAIL_TEXT"
         DETAILS="$(truncate_text "${DETAILS:-$MESSAGE}" 100)"
         TELEGRAM_MESSAGE="$TELEGRAM_HEADER"$'\n'"$EMOJI $ACTION"
